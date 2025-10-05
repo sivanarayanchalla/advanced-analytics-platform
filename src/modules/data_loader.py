@@ -1,15 +1,13 @@
 import pandas as pd
 import streamlit as st
 from typing import Union, Dict, Any, List
-import io
 import requests
-from sqlalchemy import create_engine
 import logging
 from datetime import datetime
 from src.config.config import config
 
 class DataLoader:
-    """Data loader for user-uploaded files"""
+    """Data loader for user-uploaded files - Simplified for cloud deployment"""
     
     def __init__(self):
         self.logger = logging.getLogger(__name__)
@@ -71,3 +69,16 @@ class DataLoader:
             return self.load_json(file)
         else:
             raise ValueError(f"Unsupported file type: {filename}")
+    
+    def load_from_api(self, url: str, params: Dict = None) -> pd.DataFrame:
+        """Load data from API"""
+        try:
+            response = requests.get(url, params=params)
+            response.raise_for_status()
+            data = response.json()
+            df = pd.DataFrame(data)
+            self.logger.info(f"Loaded API data with shape: {df.shape}")
+            return df
+        except Exception as e:
+            self.logger.error(f"Error loading from API: {e}")
+            raise
