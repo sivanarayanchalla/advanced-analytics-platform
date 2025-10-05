@@ -1,13 +1,12 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.model_selection import train_test_split
 import numpy as np
 
 def show_neural_networks(analytics):
-    """Neural Networks page"""
+    """Neural Networks page using scikit-learn MLP"""
     st.header("🧠 Neural Networks")
     
     # Check if data is loaded
@@ -92,8 +91,8 @@ def show_neural_networks(analytics):
     with col1:
         hidden_layers = st.text_input(
             "Hidden Layer Sizes:",
-            value="128, 64, 32",
-            help="Comma-separated list of layer sizes (e.g., 128, 64, 32)"
+            value="100, 50",
+            help="Comma-separated list of layer sizes (e.g., 100, 50)"
         )
         epochs = st.slider("Training Epochs:", 10, 500, 100)
     
@@ -109,11 +108,11 @@ def show_neural_networks(analytics):
     with st.expander("🔧 Advanced Options"):
         col1, col2 = st.columns(2)
         with col1:
-            batch_size = st.selectbox("Batch Size:", [16, 32, 64, 128], index=1)
-            dropout_rate = st.slider("Dropout Rate:", 0.0, 0.5, 0.3)
-        with col2:
-            activation = st.selectbox("Activation Function:", ["relu", "tanh", "sigmoid"])
+            activation = st.selectbox("Activation Function:", ["relu", "tanh", "logistic"])
             early_stopping = st.checkbox("Use Early Stopping", value=True)
+        with col2:
+            solver = st.selectbox("Solver:", ["adam", "lbfgs", "sgd"])
+            shuffle = st.checkbox("Shuffle Data", value=True)
     
     # Train model
     if st.button("🚀 Train Neural Network", type="primary"):
@@ -122,185 +121,157 @@ def show_neural_networks(analytics):
             return
         
         try:
-            with st.spinner("Preprocessing data and training neural network..."):
+            with st.spinner("Training neural network..."):
                 # Prepare data
-                X = df[selected_features].copy()
-                y = df[target_column].copy()
+                X = df[selected_features]
+                y = df[target_column]
                 
-                # Preprocess features
-                X_processed, preprocessing_info = preprocess_features(X)
-                y_processed, target_info = preprocess_target(y, problem_type)
-                
-                # Show preprocessing results
-                st.subheader("🔄 Preprocessing Results")
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    st.write("**Features Processing:**")
-                    st.write(f"- Original features: {X.shape[1]}")
-                    st.write(f"- After encoding: {X_processed.shape[1]}")
-                    if preprocessing_info['encoded_categorical']:
-                        st.write(f"- Categorical features encoded: {len(preprocessing_info['encoded_categorical'])}")
-                
-                with col2:
-                    st.write("**Target Processing:**")
-                    st.write(f"- Problem type: {target_info['problem_type']}")
-                    if target_info['encoded']:
-                        st.write(f"- Unique classes: {target_info['n_classes']}")
-                
-                # Split data
-                X_train, X_test, y_train, y_test = train_test_split(
-                    X_processed, y_processed, test_size=test_size/100, random_state=42
-                )
-                
-                # Scale features
-                scaler = StandardScaler()
-                X_train_scaled = scaler.fit_transform(X_train)
-                X_test_scaled = scaler.transform(X_test)
-                
-                # Train model using the analytics module
-                model, scaler, losses = analytics.train_tabular_nn(
-                    pd.DataFrame(X_train_scaled), 
-                    pd.Series(y_train),
+                # Train model using the CORRECT method name
+                model, scaler, losses = analytics.train_neural_network(
+                    X, y, 
                     hidden_layers=[int(x.strip()) for x in hidden_layers.split(',')],
+                    problem_type=problem_type,
                     epochs=epochs
                 )
                 
                 # Display results
                 st.success("✅ Training completed!")
                 
-                # Plot training loss
-                st.subheader("📈 Training Progress")
-                fig_loss = px.line(
-                    x=range(len(losses)),
-                    y=losses,
-                    title="Training Loss Over Time",
-                    labels={'x': 'Epoch', 'y': 'Loss'}
-                )
-                st.plotly_chart(fig_loss, use_container_width=True)
+                # Plot training loss if available
+                if losses:
+                    st.subheader("📈 Training Progress")
+                    fig_loss = px.line(
+                        x=range(len(losses)),
+                        y=losses,
+                        title="Training Loss Over Time",
+                        labels={'x': 'Epoch', 'y': 'Loss'}
+                    )
+                    st.plotly_chart(fig_loss, use_container_width=True)
+                else:
+                    st.info("📊 Training loss curve not available for this solver.")
                 
                 # Model summary
                 st.subheader("📋 Model Summary")
                 col1, col2, col3, col4 = st.columns(4)
                 
                 with col1:
-                    st.metric("Final Loss", f"{losses[-1]:.4f}")
+                    if losses:
+                        final_loss = losses[-1]
+                        st.metric("Final Loss", f"{final_loss:.4f}")
+                    else:
+                        st.metric("Training", "Completed")
                 with col2:
-                    st.metric("Features Used", X_processed.shape[1])
+                    st.metric("Features Used", len(selected_features))
                 with col3:
                     st.metric("Training Epochs", epochs)
                 with col4:
-                    st.metric("Test Size", f"{test_size}%")
+                    st.metric("Problem Type", problem_type)
                 
-                # Make predictions
-                import torch
-                model.eval()
-                with torch.no_grad():
-                    X_test_tensor = torch.FloatTensor(X_test_scaled)
-                    predictions = model(X_test_tensor).numpy().flatten()
+                # Make predictions and show metrics
+                X_processed, y_processed = analytics.preprocess_data(X, y)
+                X_scaled = scaler.transform(X_processed)
+                predictions = model.predict(X_scaled)
                 
-                # Calculate metrics
-                from sklearn.metrics import mean_squared_error, r2_score, accuracy_score
+                from sklearn.metrics import accuracy_score, r2_score, classification_report
                 
                 if problem_type == "regression":
-                    mse = mean_squared_error(y_test, predictions)
-                    r2 = r2_score(y_test, predictions)
+                    r2 = r2_score(y_processed, predictions)
+                    mse = np.mean((y_processed - predictions) ** 2)
                     
                     st.subheader("📊 Regression Results")
                     col1, col2 = st.columns(2)
                     with col1:
-                        st.metric("Mean Squared Error", f"{mse:.4f}")
-                    with col2:
                         st.metric("R² Score", f"{r2:.4f}")
+                    with col2:
+                        st.metric("MSE", f"{mse:.4f}")
                     
                     # Plot predictions vs actual
                     fig_pred = px.scatter(
-                        x=y_test,
+                        x=y_processed,
                         y=predictions,
                         title="Predictions vs Actual Values",
                         labels={'x': 'Actual', 'y': 'Predicted'}
                     )
-                    fig_pred.add_shape(type='line', x0=y_test.min(), y0=y_test.min(), 
-                                     x1=y_test.max(), y1=y_test.max(), line=dict(dash='dash'))
+                    fig_pred.add_shape(
+                        type='line', 
+                        x0=y_processed.min(), 
+                        y0=y_processed.min(), 
+                        x1=y_processed.max(), 
+                        y1=y_processed.max(), 
+                        line=dict(dash='dash', color='red')
+                    )
                     st.plotly_chart(fig_pred, use_container_width=True)
                 
                 else:
-                    # For classification, convert probabilities to classes
-                    predicted_classes = (predictions > 0.5).astype(int)
-                    accuracy = accuracy_score(y_test, predicted_classes)
+                    # For classification
+                    accuracy = accuracy_score(y_processed, predictions)
                     
                     st.subheader("📊 Classification Results")
-                    st.metric("Accuracy", f"{accuracy:.4f}")
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.metric("Accuracy", f"{accuracy:.4f}")
+                    with col2:
+                        st.metric("Classes", f"{len(np.unique(y_processed))}")
                     
                     # Confusion matrix
                     from sklearn.metrics import confusion_matrix
-                    cm = confusion_matrix(y_test, predicted_classes)
+                    cm = confusion_matrix(y_processed, predictions)
                     
                     fig_cm = px.imshow(
                         cm,
                         title="Confusion Matrix",
                         labels=dict(x="Predicted", y="Actual", color="Count"),
-                        x=['Class 0', 'Class 1'],
-                        y=['Class 0', 'Class 1']
+                        x=[f'Class {i}' for i in range(cm.shape[1])],
+                        y=[f'Class {i}' for i in range(cm.shape[0])],
+                        color_continuous_scale='Blues'
                     )
                     st.plotly_chart(fig_cm, use_container_width=True)
+                    
+                    # Classification report
+                    st.subheader("📋 Classification Report")
+                    report = classification_report(y_processed, predictions, output_dict=True)
+                    report_df = pd.DataFrame(report).transpose()
+                    st.dataframe(report_df, width='stretch')
+                
+                # Model information
+                st.subheader("🔍 Model Information")
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.write("**Model Type:**", type(model).__name__)
+                    st.write("**Layers:**", model.hidden_layer_sizes)
+                    st.write("**Activation:**", model.activation)
+                
+                with col2:
+                    st.write("**Solver:**", model.solver)
+                    st.write("**Iterations:**", model.n_iter_)
+                    st.write("**Layers:**", len(model.coefs_))
                 
         except Exception as e:
             st.error(f"Error training model: {str(e)}")
             st.info("💡 Tip: Make sure your data contains numerical values or categorical data that can be encoded.")
 
-def preprocess_features(X):
-    """Preprocess features for neural network training"""
-    X_processed = X.copy()
-    preprocessing_info = {
-        'encoded_categorical': [],
-        'scaled_numerical': []
-    }
-    
-    # Encode categorical features
-    for col in X_processed.columns:
-        if not pd.api.types.is_numeric_dtype(X_processed[col]):
-            # One-hot encode categorical variables with few unique values
-            if X_processed[col].nunique() <= 10:
-                encoded = pd.get_dummies(X_processed[col], prefix=col)
-                X_processed = pd.concat([X_processed, encoded], axis=1)
-                X_processed.drop(col, axis=1, inplace=True)
-                preprocessing_info['encoded_categorical'].append(col)
-            else:
-                # Label encode for high cardinality
-                le = LabelEncoder()
-                X_processed[col] = le.fit_transform(X_processed[col].astype(str))
-                preprocessing_info['encoded_categorical'].append(f"{col} (label encoded)")
-    
-    # Convert to numeric and handle any remaining non-numeric values
-    X_processed = X_processed.apply(pd.to_numeric, errors='coerce')
-    
-    # Fill any NaN values with 0
-    X_processed = X_processed.fillna(0)
-    
-    return X_processed, preprocessing_info
+def show_neural_network_info():
+    """Show information about neural networks"""
+    with st.expander("💡 About Neural Networks"):
+        st.markdown("""
+        **Multi-Layer Perceptron (MLP) Neural Networks:**
+        
+        - **Input Layer**: Your selected features (automatically encoded)
+        - **Hidden Layers**: Learn complex patterns in the data
+        - **Output Layer**: Prediction (regression or classification)
+        
+        **Advantages:**
+        - Can learn non-linear relationships
+        - Works with both numerical and categorical data
+        - Automatic feature preprocessing
+        
+        **Tips for Better Results:**
+        - Use more data for better performance
+        - Scale numerical features (automatically done)
+        - Start with simpler architectures (e.g., 50, 25)
+        - Use more epochs for complex patterns
+        """)
 
-def preprocess_target(y, problem_type):
-    """Preprocess target variable"""
-    y_processed = y.copy()
-    target_info = {
-        'problem_type': problem_type,
-        'encoded': False,
-        'n_classes': None
-    }
-    
-    if problem_type == "classification" and not pd.api.types.is_numeric_dtype(y_processed):
-        # Encode categorical target
-        le = LabelEncoder()
-        y_processed = le.fit_transform(y_processed)
-        target_info['encoded'] = True
-        target_info['n_classes'] = len(le.classes_)
-        target_info['classes'] = le.classes_
-    
-    # Convert to numeric
-    y_processed = pd.to_numeric(y_processed, errors='coerce')
-    
-    # Fill NaN values with 0
-    y_processed = y_processed.fillna(0)
-    
-    return y_processed, target_info
+# Call the info function at the bottom
+show_neural_network_info()

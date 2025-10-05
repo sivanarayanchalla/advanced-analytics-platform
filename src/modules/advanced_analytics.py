@@ -1,9 +1,10 @@
+import streamlit as st
 import pandas as pd
 import numpy as np
-import torch
-import torch.nn as nn
+from sklearn.neural_network import MLPRegressor, MLPClassifier
 from sklearn.preprocessing import StandardScaler, LabelEncoder
-from ydata_profiling import ProfileReport
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score, r2_score, mean_squared_error
 import plotly.express as px
 import plotly.graph_objects as go
 from typing import Tuple, Dict, Any
@@ -12,15 +13,13 @@ import warnings
 warnings.filterwarnings('ignore')
 
 class AdvancedAnalytics:
-    """Handles advanced analytics and neural network operations"""
+    """Handles advanced analytics and machine learning operations"""
     
     def __init__(self):
         self.logger = logging.getLogger(__name__)
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        self.logger.info(f"Using device: {self.device}")
     
     def preprocess_data(self, X: pd.DataFrame, y: pd.Series) -> Tuple[pd.DataFrame, pd.Series]:
-        """Preprocess data for neural network training"""
+        """Preprocess data for machine learning training"""
         X_processed = X.copy()
         y_processed = y.copy()
         
@@ -49,26 +48,33 @@ class AdvancedAnalytics:
         
         return X_processed, y_processed
     
-    def generate_advanced_profile(self, df: pd.DataFrame) -> ProfileReport:
-        """Generate advanced data profile"""
+    def generate_advanced_profile(self, df: pd.DataFrame):
+        """Generate advanced data profile using sweetviz"""
         try:
-            profile = ProfileReport(
-                df, 
-                title="Advanced Data Profile",
-                explorative=True,
-                minimal=False,
-                progress_bar=False
-            )
-            self.logger.info("Generated advanced data profile")
-            return profile
-        except Exception as e:
-            self.logger.error(f"Error generating profile: {e}")
-            raise
+            import sweetviz as sv
+            report = sv.analyze(df)
+            return report
+        except ImportError:
+            # Fallback to basic pandas profiling if sweetviz not available
+            st.warning("Sweetviz not available. Using basic data summary.")
+            return self._generate_basic_profile(df)
     
-    def train_tabular_nn(self, X: pd.DataFrame, y: pd.Series, 
-                        hidden_layers: list = [128, 64, 32], 
-                        epochs: int = 100) -> Tuple[nn.Module, StandardScaler, list]:
-        """Train tabular neural network with automatic preprocessing"""
+    def _generate_basic_profile(self, df: pd.DataFrame):
+        """Generate basic data profile as fallback"""
+        profile_data = {
+            'shape': df.shape,
+            'columns': list(df.columns),
+            'data_types': df.dtypes.to_dict(),
+            'missing_values': df.isnull().sum().to_dict(),
+            'basic_stats': df.describe().to_dict()
+        }
+        return profile_data
+    
+    def train_neural_network(self, X: pd.DataFrame, y: pd.Series, 
+                           hidden_layers: list = [100, 50], 
+                           problem_type: str = "regression",
+                           epochs: int = 100) -> Tuple[Any, StandardScaler, list]:
+        """Train neural network using scikit-learn MLP"""
         try:
             # Preprocess data
             X_processed, y_processed = self.preprocess_data(X, y)
@@ -77,51 +83,34 @@ class AdvancedAnalytics:
             scaler = StandardScaler()
             X_scaled = scaler.fit_transform(X_processed)
             
-            # Convert to tensors
-            X_tensor = torch.FloatTensor(X_scaled).to(self.device)
-            y_tensor = torch.FloatTensor(y_processed.values).unsqueeze(1).to(self.device)
+            # Split data
+            X_train, X_test, y_train, y_test = train_test_split(
+                X_scaled, y_processed, test_size=0.2, random_state=42
+            )
             
-            # Define model
-            class TabularNN(nn.Module):
-                def __init__(self, input_size, hidden_layers):
-                    super().__init__()
-                    layers = []
-                    prev_size = input_size
-                    
-                    for hidden_size in hidden_layers:
-                        layers.extend([
-                            nn.Linear(prev_size, hidden_size),
-                            nn.BatchNorm1d(hidden_size),
-                            nn.ReLU(),
-                            nn.Dropout(0.3)
-                        ])
-                        prev_size = hidden_size
-                    
-                    layers.append(nn.Linear(prev_size, 1))
-                    self.network = nn.Sequential(*layers)
-                
-                def forward(self, x):
-                    return self.network(x)
+            # Create and train model
+            if problem_type == "regression":
+                model = MLPRegressor(
+                    hidden_layer_sizes=hidden_layers,
+                    max_iter=epochs,
+                    random_state=42,
+                    learning_rate_init=0.001
+                )
+            else:
+                model = MLPClassifier(
+                    hidden_layer_sizes=hidden_layers,
+                    max_iter=epochs,
+                    random_state=42,
+                    learning_rate_init=0.001
+                )
             
-            model = TabularNN(X_processed.shape[1], hidden_layers).to(self.device)
-            criterion = nn.MSELoss()
-            optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+            # Train model
+            model.fit(X_train, y_train)
             
-            # Training loop
-            model.train()
-            losses = []
-            for epoch in range(epochs):
-                optimizer.zero_grad()
-                outputs = model(X_tensor)
-                loss = criterion(outputs, y_tensor)
-                loss.backward()
-                optimizer.step()
-                losses.append(loss.item())
-                
-                if epoch % 20 == 0:
-                    self.logger.info(f'Epoch [{epoch}/{epochs}], Loss: {loss.item():.4f}')
+            # Get training loss
+            losses = model.loss_curve_ if hasattr(model, 'loss_curve_') else []
             
-            self.logger.info(f"Training completed. Final loss: {losses[-1]:.4f}")
+            self.logger.info(f"Training completed. Final loss: {losses[-1] if losses else 'N/A'}")
             return model, scaler, losses
         
         except Exception as e:
