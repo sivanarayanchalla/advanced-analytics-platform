@@ -35,8 +35,8 @@ streamlit-aggrid>=0.3.0
 streamlit-option-menu>=0.3.0
 
 # MongoDB
-pymongo>=4.0.0
-dnspython>=2.0.0
+#pymongo>=4.0.0
+#dnspython>=2.0.0
 
 # Database & APIs
 sqlalchemy>=1.4.0
