@@ -26,7 +26,7 @@ streamlit-aggrid>=0.3.0
 streamlit-option-menu>=0.3.0
 
 # Database
-sqlalchemy>=2.0.20
+sqlalchemy
 pymongo>=4.5.0
 python-dotenv>=1.0.0
 
