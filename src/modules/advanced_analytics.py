@@ -4,7 +4,8 @@ import numpy as np
 from sklearn.neural_network import MLPRegressor, MLPClassifier
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, r2_score, mean_squared_error
+from sklearn.metrics import accuracy_score, r2_score, mean_squared_error, classification_report, confusion_matrix
+from sklearn.decomposition import PCA
 import plotly.express as px
 import plotly.graph_objects as go
 from typing import Tuple, Dict, Any
@@ -49,26 +50,50 @@ class AdvancedAnalytics:
         return X_processed, y_processed
     
     def generate_advanced_profile(self, df: pd.DataFrame):
-        """Generate advanced data profile using sweetviz"""
+        """Generate basic data profile using pandas only"""
         try:
-            import sweetviz as sv
-            report = sv.analyze(df)
-            return report
-        except ImportError:
-            # Fallback to basic pandas profiling if sweetviz not available
-            st.warning("Sweetviz not available. Using basic data summary.")
-            return self._generate_basic_profile(df)
+            profile_data = self._generate_basic_profile(df)
+            return profile_data
+        except Exception as e:
+            st.error(f"Error generating profile: {e}")
+            return {"error": str(e)}
     
     def _generate_basic_profile(self, df: pd.DataFrame):
-        """Generate basic data profile as fallback"""
-        profile_data = {
-            'shape': df.shape,
-            'columns': list(df.columns),
-            'data_types': df.dtypes.to_dict(),
-            'missing_values': df.isnull().sum().to_dict(),
+        """Generate comprehensive basic data profile"""
+        profile = {
+            'overview': {
+                'shape': df.shape,
+                'memory_usage': df.memory_usage(deep=True).sum() / 1024**2,
+                'duplicates': df.duplicated().sum(),
+                'total_missing': df.isnull().sum().sum()
+            },
+            'columns': {},
+            'correlation': df.select_dtypes(include=['number']).corr() if len(df.select_dtypes(include=['number']).columns) > 1 else None,
             'basic_stats': df.describe().to_dict()
         }
-        return profile_data
+        
+        # Column-level information
+        for col in df.columns:
+            profile['columns'][col] = {
+                'dtype': str(df[col].dtype),
+                'non_null_count': df[col].count(),
+                'null_count': df[col].isnull().sum(),
+                'null_percentage': (df[col].isnull().sum() / len(df)) * 100,
+                'unique_count': df[col].nunique(),
+                'sample_values': df[col].head(5).tolist() if df[col].dtype == 'object' else None
+            }
+            
+            # Add basic statistics for numerical columns
+            if pd.api.types.is_numeric_dtype(df[col]):
+                profile['columns'][col].update({
+                    'mean': df[col].mean(),
+                    'std': df[col].std(),
+                    'min': df[col].min(),
+                    'max': df[col].max(),
+                    'median': df[col].median()
+                })
+        
+        return profile
     
     def train_neural_network(self, X: pd.DataFrame, y: pd.Series, 
                            hidden_layers: list = [100, 50], 
@@ -120,7 +145,11 @@ class AdvancedAnalytics:
     def generate_correlation_heatmap(self, df: pd.DataFrame) -> go.Figure:
         """Generate interactive correlation heatmap"""
         try:
-            corr_matrix = df.corr()
+            numerical_df = df.select_dtypes(include=['number'])
+            if len(numerical_df.columns) < 2:
+                raise ValueError("Need at least 2 numerical columns for correlation analysis")
+                
+            corr_matrix = numerical_df.corr()
             fig = px.imshow(
                 corr_matrix,
                 title="Feature Correlation Heatmap",
@@ -135,21 +164,20 @@ class AdvancedAnalytics:
     def perform_pca_analysis(self, df: pd.DataFrame, n_components: int = 2) -> Dict:
         """Perform PCA analysis on numerical data"""
         try:
-            from sklearn.decomposition import PCA
-            from sklearn.preprocessing import StandardScaler
-            
             # Select only numerical columns
             numerical_df = df.select_dtypes(include=[np.number])
             
             if numerical_df.empty:
                 return {"error": "No numerical columns found for PCA"}
+            if len(numerical_df.columns) < 2:
+                return {"error": "Need at least 2 numerical columns for PCA"}
             
             # Standardize the data
             scaler = StandardScaler()
             scaled_data = scaler.fit_transform(numerical_df)
             
             # Perform PCA
-            pca = PCA(n_components=n_components)
+            pca = PCA(n_components=min(n_components, len(numerical_df.columns)))
             principal_components = pca.fit_transform(scaled_data)
             
             # Create results dictionary
